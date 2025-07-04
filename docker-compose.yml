@@ -5,15 +5,15 @@
 
 version: '3.3'
 services:
-  minio:
-    container_name: minio
+  fastgpt-minio:
+    container_name: fastgpt-minio
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
     ports:
-      - '9001:9001'
-      - '9000:9000'
+      - '9021:9001'
+      - '9020:9000'
     networks:
       - fastgpt
     volumes:
@@ -25,8 +25,8 @@ services:
       timeout: 20s
       retries: 3
   # milvus
-  milvusEtcd:
-    container_name: milvusEtcd
+  fastgpt-milvusEtcd:
+    container_name: fastgpt-milvusEtcd
     image: quay.io/coreos/etcd:v3.5.5
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
@@ -43,15 +43,15 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-  milvusStandalone:
-    container_name: milvusStandalone
+  fastgpt-milvusStandalone:
+    container_name: fastgpt-milvusStandalone
     image: milvusdb/milvus:v2.4.3
     command: ['milvus', 'run', 'standalone']
     security_opt:
       - seccomp:unconfined
     environment:
-      ETCD_ENDPOINTS: milvusEtcd:2379
-      MINIO_ADDRESS: minio:9000
+      ETCD_ENDPOINTS: fastgpt-milvusEtcd:2379
+      MINIO_ADDRESS: fastgpt-minio:9000
     networks:
       - fastgpt
     volumes:
@@ -63,16 +63,16 @@ services:
       timeout: 20s
       retries: 3
     depends_on:
-      - 'milvusEtcd'
-      - 'minio'
+      - 'fastgpt-milvusEtcd'
+      - 'fastgpt-minio'
 
-  mongo:
+  fastgpt-mongo:
     image: mongo:5.0.18 # dockerhub
     # image: registry.cn-hangzhou.aliyuncs.com/fastgpt/mongo:5.0.18 # 阿里云
-    container_name: mongo
+    container_name: fastgpt-mongo
     restart: always
     ports:
-      - 27017:27017
+      - 27018:27017
     networks:
       - fastgpt
     command: mongod --keyFile /data/mongodb.key --replSet rs0
@@ -93,7 +93,7 @@ services:
           rs.initiate({
               _id: "rs0",
               members: [
-                  { _id: 0, host: "mongo:27017" }
+                  { _id: 0, host: "fastgpt-mongo:27017" }
               ]
           })
         }' > /data/initReplicaSet.js
@@ -111,11 +111,11 @@ services:
 
         # 等待docker-entrypoint.sh脚本执行的MongoDB服务进程
         wait $$!
-  redis:
+  fastgpt-redis:
     image: redis:7.2-alpine
-    container_name: redis
+    container_name: fastgpt-redis
     # ports:
-    # - 6379:6379
+    # - 6380:6379
     networks:
       - fastgpt
     restart: always
@@ -131,8 +131,8 @@ services:
       - ./redis/data:/data
 
   # fastgpt
-  sandbox:
-    container_name: sandbox
+  fastgpt-sandbox:
+    container_name: fastgpt-sandbox
     image: ghcr.io/labring/fastgpt-sandbox:v4.9.14 # git
     # image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-sandbox:v4.9.14 # 阿里云
     networks:
@@ -143,7 +143,7 @@ services:
     image: ghcr.io/labring/fastgpt-mcp_server:v4.9.14 # git
     # image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt-mcp_server:v4.9.14 # 阿里云
     ports:
-      - 3005:3000
+      - 3025:3000
     networks:
       - fastgpt
     restart: always
@@ -154,13 +154,13 @@ services:
     image: ghcr.io/labring/fastgpt:v4.9.14 # git
     # image: registry.cn-hangzhou.aliyuncs.com/fastgpt/fastgpt:v4.9.14 # 阿里云
     ports:
-      - 30000:3000
+      - 30100:3000
     networks:
       - fastgpt
     depends_on:
-      - mongo
-      - milvusStandalone
-      - sandbox
+      - fastgpt-mongo
+      - fastgpt-milvusStandalone
+      - fastgpt-sandbox
     restart: always
     environment:
       # 前端外部可访问的地址，用于自动补全文件资源路径。例如 https:fastgpt.cn，不能填 localhost。这个值可以不填，不填则发给模型的图片会是一个相对路径，而不是全路径，模型可能伪造Host。
@@ -168,7 +168,7 @@ services:
       # root 密码，用户名为: root。如果需要修改 root 密码，直接修改这个环境变量，并重启即可。
       - DEFAULT_ROOT_PSW=1234
       # AI Proxy 的地址，如果配了该地址，优先使用
-      - AIPROXY_API_ENDPOINT=http://aiproxy:3000
+      - AIPROXY_API_ENDPOINT=http://fastgpt-aiproxy:3000
       # AI Proxy 的 Admin Token，与 AI Proxy 中的环境变量 ADMIN_KEY
       - AIPROXY_API_TOKEN=aiproxy
       # 模型中转地址（如果用了 AI Proxy，下面 2 个就不需要了，旧版 OneAPI 用户，使用下面的变量）
@@ -183,14 +183,14 @@ services:
       # 文件阅读加密
       - FILE_TOKEN_KEY=filetoken
       # MongoDB 连接参数. 用户名myusername,密码mypassword。
-      - MONGODB_URI=mongodb://myusername:mypassword@mongo:27017/fastgpt?authSource=admin
+      - MONGODB_URI=mongodb://myusername:mypassword@fastgpt-mongo:27017/fastgpt?authSource=admin
       # zilliz 连接参数
-      - MILVUS_ADDRESS=http://milvusStandalone:19530
+      - MILVUS_ADDRESS=http://fastgpt-milvusStandalone:19530
       - MILVUS_TOKEN=none
       # Redis 地址
-      - REDIS_URL=redis://default:mypassword@redis:6379
+      - REDIS_URL=redis://default:mypassword@fastgpt-redis:6379
       # sandbox 地址
-      - SANDBOX_URL=http://sandbox:3000
+      - SANDBOX_URL=http://fastgpt-sandbox:3000
       # 日志等级: debug, info, warn, error
       - LOG_LEVEL=info
       - STORE_LOG_LEVEL=warn
@@ -208,13 +208,13 @@ services:
       - ./config.json:/app/data/config.json
 
   # AI Proxy
-  aiproxy:
+  fastgpt-aiproxy:
     image: ghcr.io/labring/aiproxy:v0.1.7
     # image: registry.cn-hangzhou.aliyuncs.com/labring/aiproxy:v0.1.7 # 阿里云
-    container_name: aiproxy
+    container_name: fastgpt-aiproxy
     restart: unless-stopped
     depends_on:
-      aiproxy_pg:
+      fastgpt-aiproxy-pg:
         condition: service_healthy
     networks:
       - fastgpt
@@ -224,7 +224,7 @@ services:
       # 错误日志详情保存时间（小时）
       - LOG_DETAIL_STORAGE_HOURS=1
       # 数据库连接地址
-      - SQL_DSN=postgres://postgres:aiproxy@aiproxy_pg:5432/aiproxy
+      - SQL_DSN=postgres://postgres:aiproxy@fastgpt-aiproxy-pg:5432/aiproxy
       # 最大重试次数
       - RETRY_TIMES=3
       # 不需要计费
@@ -236,11 +236,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-  aiproxy_pg:
+  fastgpt-aiproxy-pg:
     image: pgvector/pgvector:0.8.0-pg15 # docker hub
     # image: registry.cn-hangzhou.aliyuncs.com/fastgpt/pgvector:v0.8.0-pg15 # 阿里云
     restart: unless-stopped
-    container_name: aiproxy_pg
+    container_name: fastgpt-aiproxy-pg
     volumes:
       - ./aiproxy_pg:/var/lib/postgresql/data
     networks:
